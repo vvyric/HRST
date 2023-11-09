@@ -1,4 +1,39 @@
 import cv2
+
+# Load the image
+image = cv2.imread('your_image.jpg')
+
+# Convert the image to grayscale
+gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+# Calculate the histogram
+hist = cv2.calcHist([gray], [0], None, [256], [0, 256])
+
+# Normalize the histogram to fit within the image height
+hist_normalized = hist / hist.max() * 255
+
+# Create a black image to draw the histogram
+hist_image = np.zeros((256, 256, 3), dtype=np.uint8)
+
+# Draw the histogram
+for i in range(256):
+    cv2.line(hist_image, (i, 256), (i, 256 - int(hist_normalized[i])), (255, 255, 255))
+
+# Display the histogram
+cv2.imshow('Histogram', hist_image)
+cv2.waitKey(0)
+cv2.destroyAllWindows()
+
+
+
+
+
+
+
+
+
+
+import cv2
 import numpy as np
 
 # Load the incoming image
