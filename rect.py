@@ -1,57 +1,31 @@
-import cv2 
-import numpy as np 
-  
-  
-# Read image 
-image = cv2.imread("image.png") 
-  
-# Select ROI 
-r = cv2.selectROI("select the area", image) 
-  
-# Crop image 
-cropped_image = image[int(r[1]):int(r[1]+r[3]),  
-                      int(r[0]):int(r[0]+r[2])] 
-  
-# Display cropped image 
-cv2.imshow("Cropped image", cropped_image) 
-cv2.waitKey(0)
-
-
-
-
-
-
-
-
-
 import cv2
 import numpy as np
 
-# Load the template image
-template_img = cv2.imread('templateImg.jpg')
+# Load the incoming image
+incoming_img = cv2.imread('incoming_image.jpg')
 
-# Define the region of interest (ROI)
-x, y, width, height = 100, 50, 200, 150
-roi = template_img[y:y + height, x:x + width]
-
-# Convert ROI to HSV color space
-roi_hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+# Convert incoming image to HSV color space
+incoming_hsv = cv2.cvtColor(incoming_img, cv2.COLOR_BGR2HSV)
 
 # Split the channels
-h, s, v = cv2.split(roi_hsv)
+h, s, v = cv2.split(incoming_hsv)
 
-# Threshold to mask out low-saturated pixels
+# Mask out low-saturated pixels
 saturation_threshold = 50
-_, mask = cv2.threshold(s, saturation_threshold, 255, cv2.THRESH_BINARY)
+saturation_mask = cv2.threshold(s, saturation_threshold, 255, cv2.THRESH_BINARY)[1]
 
-# Compute the 1D histogram
-hist = cv2.calcHist([roi_hsv], [0], mask, [256], [0, 256])
+# Back project the hue channel using the normalized histogram
+roi_hist_normalized = np.array(hist_normalized).reshape(-1, 1)
+back_projection = cv2.calcBackProject([h], [0], roi_hist_normalized, [0, 256], scale=1)
 
-# Normalize the histogram
-hist_normalized = hist / hist.sum()
+# Bitwise AND the back projection result with the saturation mask
+result = cv2.bitwise_and(back_projection, saturation_mask)
 
 # Display the results
-cv2.imshow('ROI', roi)
-cv2.imshow('Mask', mask)
+cv2.imshow('Incoming Image', incoming_img)
+cv2.imshow('Back Projection', back_projection)
+cv2.imshow('Saturation Mask', saturation_mask)
+cv2.imshow('Result', result)
+
 cv2.waitKey(0)
 cv2.destroyAllWindows()
