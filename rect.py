@@ -1,3 +1,11 @@
+bin_width = hist_image.shape[1] // len(hist_normalized)
+for i in range(len(hist_normalized)):
+    x = i * bin_width
+    y = int(hist_normalized[i])
+    cv2.rectangle(hist_image, (x, hist_image.shape[0]), (x + bin_width, hist_image.shape[0] - y), (255, 255, 255), -1)
+
+
+
 import cv2
 
 # Load the image
