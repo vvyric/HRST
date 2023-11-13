@@ -1,0 +1,204 @@
+#!/usr/bin/env python
+from __future__ import print_function
+import rospy
+import rospkg
+from std_msgs.msg import String
+import os
+import numpy as np
+import roslib
+import sys
+import cv2
+from sensor_msgs.msg import Image
+from cv_bridge import CvBridge, CvBridgeError
+import cv2.aruco as aruco
+# from aruco_msgs.msg import MarkerArray
+# from aruco_msgs.msg import Marker
+
+previous_frame = None
+previous_point = []
+
+def callback(data):
+
+    global previous_frame, previous_point
+
+    rospack = rospkg.RosPack()
+    pkgPATH = rospack.get_path("tutorial_4")
+    #imgPATH = os.path.join(pkgPATH,"templateImg.jpg")
+    imgPATH = os.path.join(pkgPATH,"test.jpg")
+
+    img = cv2.imread(imgPATH)
+    roi_img = img[39:210, 164:225, :]
+
+    hsv_img = cv2.cvtColor(roi_img,cv2.COLOR_BGR2HSV)
+
+    # Threshold
+    # --------------------------------------------------------------------
+    h, s, v = cv2.split(hsv_img)
+    threshold_val = 80
+    ret, thres_img = cv2.threshold(h, threshold_val, 255, cv2.THRESH_BINARY)
+    cv2.imshow('Thresholded',thres_img)
+    cv2.waitKey(3)
+    
+    mask_img = cv2.bitwise_and(roi_img, roi_img, mask=thres_img)
+    cv2.imshow('Mask',mask_img)
+    cv2.waitKey(3)
+
+    # Histogram
+    # --------------------------------------------------------------------
+
+    # hist_img = np.zeros((300,256,1), dtype = np.uint8)
+    # hist = cv2.calcHist([h],[0],None,[256],[0,256])
+    # hist = cv2.normalize(hist, hist, 0, hist_img.shape[0], cv2.NORM_MINMAX)
+    # for x,y in enumerate(hist):
+    #     cv2.line(hist_img, (int(x), 300), (int(x), 300-int(y)), 255)
+    # # plt.figure()
+    # # plt.plot(hist)
+    # # print(hist)
+    # cv2.imshow('HIstogram',hist_img)
+    # cv2.waitKey(3)
+
+    hist_img = np.zeros((300,256,3), dtype = np.uint8)
+    hist_img.fill(255)
+
+    # plot x,y axis
+    cv2.line(hist_img, (10,300), (10,0), (0,0,0), 1)
+    cv2.line(hist_img, (10,300), (255,300), (0,0,0), 1)
+    for i in range(0, 256, 50):
+        cv2.line(hist_img, (i+10,300), (i+10,305), (0,0,0), 1)
+        cv2.putText(hist_img, str(i), (i+5,320), cv2.FONT_HERSHEY_SIMPLEX, 0.3, (0,0,0), 1, cv2.LINE_AA)
+
+    for i in range(0, 301, 50):
+        cv2.line(hist_img, (10,300-i), (15,300-i), (0,0,0), 1)
+        cv2.putText(hist_img, str(i), (20,300-i), cv2.FONT_HERSHEY_SIMPLEX, 0.3, (0,0,0), 1, cv2.LINE_AA)
+
+    hist = cv2.calcHist([h],[0],None,[256],[0,256])
+    hist = cv2.normalize(hist, hist, 0, hist_img.shape[0], cv2.NORM_MINMAX)
+    for x,y in enumerate(hist):
+        cv2.line(hist_img, (int(x)+10, 300), (int(x)+10, 300-int(y)), (255,0,0), 1)
+    
+    cv2.namedWindow('Histogram', 0)
+    cv2.resizeWindow('Histogram', 1200, 800)
+    cv2.imshow('Histogram',hist_img)
+    # cv2.moveWindow('Histogram', 50, 50)
+    cv2.waitKey(3)
+
+
+    # back_projection
+    # --------------------------------------------------------------------
+    bridge = CvBridge()
+    cv_img = bridge.imgmsg_to_cv2(data, "bgr8")
+    cv_img_new = bridge.imgmsg_to_cv2(data, "bgr8")
+    gray = cv2.cvtColor(cv_img, cv2.COLOR_BGR2GRAY)
+    cv_OF = bridge.imgmsg_to_cv2(data, "bgr8")
+    cv_3D = bridge.imgmsg_to_cv2(data, "bgr8")
+    # cv2.imshow('Input_Img',cv_img)
+    # cv2.waitKey(3)
+
+    hsv_newimg = cv2.cvtColor(cv_img,cv2.COLOR_BGR2HSV)
+    h_new, s, v = cv2.split(hsv_newimg)
+
+    # threshold_new = 0
+    # ret, thres_img_new = cv2.threshold(h_new, threshold_new, 255, cv2.THRESH_BINARY)
+    # mask_img_new = cv2.bitwise_and(cv_img, cv_img, mask=thres_img_new)
+    # h_new, s, v = cv2.split(mask_img_new)
+
+    back_projection = cv2.calcBackProject([h_new], [0], hist, [0,256], scale=1)
+    cv2.imshow('back_projection',back_projection)
+    cv2.waitKey(3)
+
+
+    # Mean-Shift
+    # -------------------------------------------------------------------
+    track_window = (164, 39, 225-164, 210-39)  # x, y, width, height
+    # h = h[track_window[1]:track_window[1]+track_window[3], track_window[0]:track_window[0]+track_window[2]]
+
+    termination_criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 30, 1)
+    ret, track_window = cv2.meanShift(back_projection, track_window, termination_criteria)
+    x, y, w, h = track_window
+    cv2.rectangle(cv_img, (x, y), (x+w, y+h), (0, 255, 0), 2)
+
+    # Show the resulting images
+    cv2.imshow('Back Projection with Mean-Shift Tracking', cv_img)
+    cv2.waitKey(3)
+
+    # CamShift
+    # -------------------------------------------------------------------
+    track_window = (164, 39, 225-164, 210-39)  # x, y, width, height
+    ret, track_window = cv2.CamShift(back_projection, track_window, termination_criteria)
+    box = cv2.boxPoints(ret)
+    # box = np.int0(box)
+    # cv2.polylines(cv_img_new, [box], isClosed=True, color=(0,255,0), thickness=2)
+
+    # box[box < 0] = 0
+    rotated_rect = cv2.minAreaRect(box)
+    box = cv2.boxPoints(rotated_rect)
+    box = np.int0(box)
+    cv2.drawContours(cv_img_new, [box], 0, (0,255,0), 2)
+    cv2.imshow('Back Projection with CamShift Tracking', cv_img_new)
+    cv2.waitKey(3)
+
+
+    # Optical Flow
+    # -------------------------------------------------------------------
+    if previous_frame is None or previous_point is None:
+        previous_frame = gray
+        previous_point = cv2.goodFeaturesToTrack(previous_frame, maxCorners=100, qualityLevel=0.01, minDistance=10)
+    
+    new_points, status, _ = cv2.calcOpticalFlowPyrLK(previous_frame, gray, previous_point, None)
+    
+    good_new = new_points[status ==1]
+    good_previous = previous_point[status ==1]
+
+    previous_frame = gray
+    previous_point = good_new.reshape(-1, 1, 2)
+
+    for i, (new, previous) in enumerate(zip(good_new, good_previous)):
+        x1, y1 = new.ravel()
+        x0, y0 = previous.ravel()
+        cv2.circle(cv_OF, (x1,y1), 5, (0,0,255), -1)
+        cv2.line(cv_OF, (x1,y1), (x0,y0), (0,255,0), 2)
+    
+    cv2.imshow('Optical Flow', cv_OF)
+    cv2.waitKey(3)
+
+    # ArUco
+    aruco_dict = aruco.Dictionary_get(aruco.DICT_ARUCO_ORIGINAL)
+    parameters = aruco.DetectorParameters_create()
+    
+    gray_aruco = cv2.cvtColor(cv_3D, cv2.COLOR_BGR2GRAY)
+    corners, ids, _ = aruco.detectMarkers(gray_aruco, aruco_dict, parameters=parameters)
+
+    if ids is not None:
+        cv2.aruco.drawDetectedMarkers(cv_img, corners, ids)
+
+        camera_matrix = np.array([[615.416197266, 0.0, 327.134042918],
+                                  [0.0, 614.947265625, 251.799055396],
+                                  [0.0, 0.0, 1.0]])
+        dist_coeffs = np.array([0.0683955473373, -0.186688250699, 0.0, 0.0, 0.123678706722])
+        rvec, tvec, _ = aruco.estimatePoseSingleMarkers(corners, 0.05, camera_matrix, dist_coeffs)
+
+        if rvec is not None and tvec is not None:
+            for i in range(len(rvec)):
+                cv2.aruco.drawAxis(cv_3D, camera_matrix, dist_coeffs, rvec[i], tvec[i], 0.1)
+
+    cv2.imshow('3D marker position', cv_3D)
+    cv2.waitKey(3)
+
+def listener():
+    global previous_frame, previous_point
+
+    # In ROS, nodes are uniquely named. If two nodes with the same
+    # name are launched, the previous one is kicked off. The
+    # anonymous=True flag means that rospy will choose a unique
+    # name for our 'listener' node so that multiple listeners can
+    # run simultaneously.
+    rospy.init_node('listener', anonymous=True)
+
+    rospy.Subscriber("/nao_robot/camera/top/camera/image_raw", Image , callback)
+
+    previous_frame = None
+    previous_point = []
+    rospy.spin()
+
+if __name__ == '__main__':
+    listener()
